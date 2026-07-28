@@ -4,15 +4,23 @@ type Theme = 'dark' | 'light';
 
 export function useTheme() {
   const [theme, setTheme] = useState<Theme>(() => {
-    const stored = localStorage.getItem('nsaic-theme');
-    return stored === 'light' ? 'light' : 'dark';
+    // localStorage can throw in a sandboxed iframe (e.g. a published artifact).
+    try {
+      return localStorage.getItem('nsaic-theme') === 'light' ? 'light' : 'dark';
+    } catch {
+      return 'dark';
+    }
   });
 
   useEffect(() => {
     const root = document.documentElement;
     root.classList.toggle('dark', theme === 'dark');
     root.classList.toggle('light', theme === 'light');
-    localStorage.setItem('nsaic-theme', theme);
+    try {
+      localStorage.setItem('nsaic-theme', theme);
+    } catch {
+      /* storage unavailable — ignore */
+    }
   }, [theme]);
 
   return {
