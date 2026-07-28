@@ -14,5 +14,12 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    // Allow the remote preview proxy's hostname through Vite's host check.
+    allowedHosts: true,
+  },
+  preview: {
+    host: true,
+    port: 4173,
+    allowedHosts: true,
   },
 });
