@@ -2,17 +2,24 @@ import { create } from 'zustand';
 import { chainHash, GENESIS_HASH } from './hash';
 import { computeIndex, RUNTIME_EVENT_META } from './engine';
 import {
+  FEATURED_ALERT_ID,
+  SEED_ALERTS,
   SEED_GATES,
   SEED_MODELS,
   SEED_TENANTS,
+  SEED_ZONES,
 } from './seed';
 import {
   CLASSIFICATIONS,
+  CONDITIONAL_FLOOR,
   TIER_THRESHOLD,
+  type BlastRadius,
   type Classification,
   type EgressEvent,
   type Gate,
   type Grant,
+  type InvestigationStage,
+  type InvestigationStep,
   type LedgerAction,
   type LedgerEntry,
   type MetadataKey,
@@ -20,6 +27,12 @@ import {
   type Phase,
   type RuntimeEvent,
   type RuntimeEventKind,
+  type SocAlert,
+  type SoarAction,
+  type SoarDecision,
+  type Verdict,
+  type VerdictOutcome,
+  type ZonePosture,
 } from './types';
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
@@ -59,6 +72,14 @@ export interface EngineState {
   lastRevocationUnassisted: boolean;
   booted: boolean;
 
+  // Security Operations Centre (§10) — same session, same ledger.
+  zones: SovereignZoneLive[];
+  alerts: SocAlert[];
+  investigationSteps: Record<string, InvestigationStep[]>;
+  verdicts: Record<string, Verdict>;
+  soarActions: Record<string, SoarAction>;
+  selectedAlertId: string | null;
+
   // lifecycle
   boot: () => Promise<void>;
   resetSession: () => Promise<void>;
@@ -84,12 +105,24 @@ export interface EngineState {
   injectRuntimeEvent: (kind: RuntimeEventKind) => Promise<void>;
   tick: () => void;
 
+  // Security Operations Centre (§10.2's six-stage loop: ingest, detect,
+  // investigate, enrich, decide, respond)
+  selectAlert: (id: string) => void;
+  runInvestigation: (alertId: string) => Promise<void>;
+  respondToAlert: (alertId: string, decision: 'approve' | 'deny', approvedBy?: string) => Promise<void>;
+  zonePosture: (zoneId: string) => ZonePosture;
+
   // evidence
   appendLedger: (a: AppendArgs) => Promise<void>;
   tamperRecord: (seq: number, newSummary: string) => void;
   verifyLedger: () => Promise<number[]>;
   exportEvidence: () => Promise<string>;
 }
+
+/** A sovereign zone as seeded — posture itself is NOT stored on this type; it
+ * is derived live in zonePosture() from unresolved alerts, the same
+ * "derived, not asserted" discipline the Assurance Index holds itself to. */
+type SovereignZoneLive = (typeof SEED_ZONES)[number];
 
 function freshGates(): Gate[] {
   return clone(SEED_GATES);
@@ -111,6 +144,13 @@ export const useEngine = create<EngineState>((set, get) => ({
   lastRevocationUnassisted: false,
   booted: false,
 
+  zones: SEED_ZONES,
+  alerts: [],
+  investigationSteps: {},
+  verdicts: {},
+  soarActions: {},
+  selectedAlertId: FEATURED_ALERT_ID,
+
   boot: async () => {
     if (get().booted) return;
     set({ booted: true });
@@ -122,6 +162,7 @@ export const useEngine = create<EngineState>((set, get) => ({
         { id: uid(), ts: now - 2600, source: 'gatekeeper', target: 'evidence-ledger.internal', verdict: 'INTERNAL', note: 'audit append' },
         { id: uid(), ts: now - 900, source: 'tenant-gw', target: 'inference.internal', verdict: 'INTERNAL', note: 'inference request' },
       ],
+      alerts: SEED_ALERTS.map((a) => ({ ...a })),
     });
     await get().appendLedger({
       actor: 'system',
@@ -129,6 +170,24 @@ export const useEngine = create<EngineState>((set, get) => ({
       summary: `Assurance session ${get().session.id} opened`,
       payload: { tenants: SEED_TENANTS.map((t) => t.id) },
     });
+    // SOC telemetry history (§10.4): every seed alert already has a raised
+    // detection by the time the evaluator opens the Command Centre — the
+    // FEATURED alert is the only one left 'new', so it is the only one the
+    // Investigation view can actually run live.
+    for (const a of SEED_ALERTS) {
+      await get().appendLedger({
+        actor: 'soc',
+        action: 'ALERT_RAISED',
+        summary: `Alert raised — ${a.title}`,
+        payload: { alertId: a.id, zoneId: a.zoneId, severity: a.severity },
+      });
+      await get().appendLedger({
+        actor: 'detection-engine',
+        action: 'DETECTION_FIRED',
+        summary: `Detection fired — ${a.detectionType}`,
+        payload: { alertId: a.id, detectionType: a.detectionType },
+      });
+    }
   },
 
   resetSession: async () => {
@@ -145,6 +204,12 @@ export const useEngine = create<EngineState>((set, get) => ({
       events: [],
       lastRevocationUnassisted: false,
       booted: false,
+      zones: SEED_ZONES,
+      alerts: [],
+      investigationSteps: {},
+      verdicts: {},
+      soarActions: {},
+      selectedAlertId: FEATURED_ALERT_ID,
     });
     await get().boot();
   },
@@ -292,29 +357,44 @@ export const useEngine = create<EngineState>((set, get) => ({
     const tenant = SEED_TENANTS.find((t) => t.id === tenantId)!;
     const idx = computeIndex(get().gates, get().events);
     const threshold = TIER_THRESHOLD[tier];
-    const authorised = idx.score >= threshold && model?.status === 'SCORED';
+    const conditionalFloor = CONDITIONAL_FLOOR[tier];
+    const scored = model?.status === 'SCORED';
+
+    // §5.3's own three-way decision: Approve / Approve with conditions / Reject.
+    const status: Grant['status'] = !scored || idx.score < conditionalFloor
+      ? 'REFUSED'
+      : idx.score < threshold
+        ? 'CONDITIONAL'
+        : 'AUTHORISED';
+    const authorised = status === 'AUTHORISED' || status === 'CONDITIONAL';
 
     const grant: Grant = {
       id: `ATO-${uid()}`,
       tenantId,
       tenantName: tenant.name,
       tier,
-      status: authorised ? 'AUTHORISED' : 'REFUSED',
+      status,
       issuedAt: Date.now(),
       expiresAt: Date.now() + 1000 * 120, // 2-minute time-box for demo visibility
       indexAtIssue: idx.score,
-      reason: authorised
-        ? undefined
-        : `Index ${idx.score} below ${tier} threshold ${threshold}`,
+      reason:
+        status === 'AUTHORISED'
+          ? undefined
+          : status === 'CONDITIONAL'
+            ? `Index ${idx.score} in the conditional band [${conditionalFloor}, ${threshold}) — restricted scope, remediation plan attached`
+            : `Index ${idx.score} below ${tier} reject floor ${conditionalFloor}`,
     };
     set((s) => ({ grants: [grant, ...s.grants] }));
     await get().appendLedger({
       actor: 'gatekeeper',
       action: authorised ? 'ATO_ISSUED' : 'ATO_REFUSED',
-      summary: authorised
-        ? `ATO issued — ${tenant.name} @ ${tier} (expires in 120s)`
-        : `ATO refused — ${tenant.name} @ ${tier}: index ${idx.score} < ${threshold}`,
-      payload: { grantId: grant.id, tenantId, tier, index: idx.score, threshold },
+      summary:
+        status === 'AUTHORISED'
+          ? `ATO issued — ${tenant.name} @ ${tier} (expires in 120s)`
+          : status === 'CONDITIONAL'
+            ? `ATO issued WITH CONDITIONS — ${tenant.name} @ ${tier}: index ${idx.score} in [${conditionalFloor}, ${threshold})`
+            : `ATO refused — ${tenant.name} @ ${tier}: index ${idx.score} < ${conditionalFloor}`,
+      payload: { grantId: grant.id, tenantId, tier, index: idx.score, threshold, conditionalFloor, status },
     });
     if (authorised) set({ phase: 'authorisation' });
     return grant;
@@ -380,7 +460,7 @@ export const useEngine = create<EngineState>((set, get) => ({
     const revoked: Grant[] = [];
     set((s) => ({
       grants: s.grants.map((g) => {
-        if (g.status !== 'AUTHORISED') return g;
+        if (g.status !== 'AUTHORISED' && g.status !== 'CONDITIONAL') return g;
         const expired = kind === 'expiry';
         const belowThreshold = idx.score < TIER_THRESHOLD[g.tier];
         if (expired || belowThreshold) {
@@ -409,13 +489,12 @@ export const useEngine = create<EngineState>((set, get) => ({
 
   tick: () => {
     const now = Date.now();
-    const expiring = get().grants.filter(
-      (g) => g.status === 'AUTHORISED' && g.expiresAt <= now
-    );
+    const isLive = (g: Grant) => g.status === 'AUTHORISED' || g.status === 'CONDITIONAL';
+    const expiring = get().grants.filter((g) => isLive(g) && g.expiresAt <= now);
     if (expiring.length === 0) return;
     set((s) => ({
       grants: s.grants.map((g) =>
-        g.status === 'AUTHORISED' && g.expiresAt <= now
+        isLive(g) && g.expiresAt <= now
           ? { ...g, status: 'EXPIRED', reason: 'time-box lapsed' }
           : g
       ),
@@ -429,6 +508,139 @@ export const useEngine = create<EngineState>((set, get) => ({
         payload: { grantId: g.id, tenantId: g.tenantId, unassisted: true },
       });
     }
+  },
+
+  // -- Security Operations Centre (§10.2, §10.3, §4.5) --------------------
+
+  selectAlert: (id) => set({ selectedAlertId: id }),
+
+  zonePosture: (zoneId) => {
+    const unresolved = get().alerts.filter((a) => a.zoneId === zoneId && a.status !== 'resolved');
+    if (unresolved.some((a) => a.severity === 'critical' || a.severity === 'high')) return 'red';
+    if (unresolved.some((a) => a.severity === 'medium')) return 'amber';
+    return 'green';
+  },
+
+  runInvestigation: async (alertId) => {
+    const alert = get().alerts.find((a) => a.id === alertId);
+    if (!alert || alert.status !== 'new') return;
+
+    set((s) => ({
+      alerts: s.alerts.map((a) => (a.id === alertId ? { ...a, status: 'investigating' } : a)),
+    }));
+
+    const pushStep = async (stage: InvestigationStage, label: string, detail: string) => {
+      await delay(240);
+      const step: InvestigationStep = { stage, label, detail, ts: Date.now() };
+      set((s) => ({
+        investigationSteps: {
+          ...s.investigationSteps,
+          [alertId]: [...(s.investigationSteps[alertId] ?? []), step],
+        },
+      }));
+      await get().appendLedger({
+        actor: 'investigation-engine',
+        action: 'INVESTIGATION_STEP',
+        summary: `${label} — ${alert.id}`,
+        payload: { alertId, stage, detail },
+      });
+    };
+
+    // §10.2's six-stage loop. "Investigate" is deliberately three sub-steps —
+    // the proposal's own description of 40+ agents forming hypotheses,
+    // querying local telemetry, and iterating until confirmed or dismissed.
+    await pushStep('ingest', 'Telemetry correlated', 'Identity log, data-volume delta and time-of-day baseline pulled for the flagged account.');
+    await pushStep('detect', 'Behavioural rule confirmed', `${alert.detectionType} — deviation exceeds the established baseline.`);
+    await pushStep('investigate', 'Hypothesis formed', 'Investigation agent hypothesises credential misuse or a compromised service account.');
+    await pushStep('investigate', 'Evidence gathered', 'Cross-referenced access-pattern history and entity risk profile against the hypothesis.');
+    await pushStep(
+      'enrich',
+      'Enriched with threat intelligence',
+      alert.sovereigntyCritical
+        ? 'Destination endpoint checked against the sovereignty watch-list (§10.3) — matches a known foreign C2 range.'
+        : 'Destination and indicator checked against global and regional threat-intelligence feeds.'
+    );
+
+    // §10.2: "a verdict of threat, suspicious, or benign" plus the attack
+    // patterns §10.3 names (lateral movement, persistence, privilege
+    // escalation, exfiltration, defence evasion).
+    const outcome: VerdictOutcome = alert.sovereigntyCritical ? 'threat' : alert.severity === 'low' ? 'benign' : 'suspicious';
+    const verdict: Verdict = {
+      alertId,
+      outcome,
+      confidence: alert.sovereigntyCritical ? 92 : alert.severity === 'low' ? 88 : 74,
+      rationale: alert.sovereigntyCritical
+        ? [
+            'Access pattern deviates from the account baseline by a wide margin.',
+            'Outbound destination matches a sovereignty-critical indicator (§10.3) — call-home to a foreign endpoint.',
+            'No change-management record justifies the export.',
+          ]
+        : [
+            'Access pattern deviates from the account baseline.',
+            'No corroborating threat-intelligence match at this time.',
+          ],
+      attackPatterns: alert.sovereigntyCritical ? ['Exfiltration', 'Defence evasion'] : ['Privilege escalation (candidate)'],
+    };
+    await delay(260);
+    set((s) => ({
+      alerts: s.alerts.map((a) => (a.id === alertId ? { ...a, status: 'verdict' } : a)),
+      verdicts: { ...s.verdicts, [alertId]: verdict },
+    }));
+    await get().appendLedger({
+      actor: 'investigation-engine',
+      action: 'VERDICT_ISSUED',
+      summary: `Verdict issued — ${outcome.toUpperCase()} (confidence ${verdict.confidence}) — ${alert.id}`,
+      payload: { alertId, outcome, confidence: verdict.confidence, attackPatterns: verdict.attackPatterns },
+    });
+  },
+
+  respondToAlert: async (alertId, decision, approvedBy) => {
+    const alert = get().alerts.find((a) => a.id === alertId);
+    const verdict = get().verdicts[alertId];
+    if (!alert || !verdict) return;
+
+    // §4.5's blast-radius dimensions, evaluated before the action commits.
+    const blastRadius: BlastRadius = {
+      scope: '1 service account, 1 data export',
+      value: verdict.outcome === 'threat' ? 'Treasury-tier records — high' : 'Bounded to this account',
+      systemReach: alert.zoneId,
+      irreversibility: verdict.outcome === 'threat' ? 'compensable' : 'reversible',
+      velocity: 'single burst, not sustained',
+      privilege: 'service-account, not administrative',
+    };
+    const requiresApproval = verdict.outcome !== 'benign';
+    const soarDecision: SoarDecision = !requiresApproval ? 'auto' : decision === 'approve' ? 'approved' : 'denied';
+
+    const action: SoarAction = {
+      alertId,
+      action:
+        verdict.outcome === 'threat'
+          ? 'Revoke the service-account credential; quarantine the destination endpoint at the boundary.'
+          : verdict.outcome === 'suspicious'
+            ? 'Suspend the service-account credential pending manual review.'
+            : 'No action required — logged for the record.',
+      decision: soarDecision,
+      approvedBy: requiresApproval ? approvedBy : undefined,
+      blastRadius,
+    };
+    set((s) => ({
+      alerts: s.alerts.map((a) => (a.id === alertId ? { ...a, status: 'resolved' } : a)),
+      soarActions: { ...s.soarActions, [alertId]: action },
+    }));
+
+    const ledgerAction: LedgerAction =
+      soarDecision === 'auto' ? 'SOAR_ACTION_AUTO' : soarDecision === 'approved' ? 'SOAR_ACTION_APPROVED' : 'SOAR_ACTION_DENIED';
+    await get().appendLedger({
+      actor: requiresApproval ? approvedBy || 'analyst' : 'soar-orchestrator',
+      action: ledgerAction,
+      summary:
+        soarDecision === 'auto'
+          ? `Governed response executed automatically — ${action.action}`
+          : soarDecision === 'approved'
+            ? `Response approved by ${approvedBy || 'analyst'} — ${action.action}`
+            : `Response denied by ${approvedBy || 'analyst'} — no action executed`,
+      payload: { alertId, decision: soarDecision, blastRadius },
+    });
   },
 
   appendLedger: async ({ actor, action, summary, payload = {} }) => {

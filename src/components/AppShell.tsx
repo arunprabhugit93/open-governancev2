@@ -1,14 +1,17 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   Boxes,
+  ClipboardCheck,
   FileCheck2,
   Gauge,
   KeyRound,
   Network,
   PlayCircle,
+  Radar,
   ScrollText,
   ServerCog,
   ShieldCheck,
+  Siren,
   Sun,
   Moon,
   RotateCcw,
@@ -23,16 +26,42 @@ import { SessionRail } from './SessionRail';
 import { useEffect, useState } from 'react';
 import { useTick } from '@/hooks/useTick';
 
-const NAV = [
-  { to: '/', label: 'Overview', icon: Gauge, end: true },
-  { to: '/registry', label: 'Model Registry', icon: Boxes },
-  { to: '/gates', label: 'Assurance Gates', icon: ShieldCheck },
-  { to: '/authorisation', label: 'Authorisation', icon: KeyRound },
-  { to: '/serving', label: 'Serving', icon: ServerCog },
-  { to: '/egress', label: 'Sovereignty', icon: Network },
-  { to: '/ledger', label: 'Evidence Ledger', icon: ScrollText },
-  { to: '/runner', label: 'Demonstration', icon: PlayCircle },
-  { to: '/disclosure', label: 'Disclosure', icon: FileCheck2 },
+/** Grouped by which of §12.1's two witnessed demonstrations each view belongs
+ * to — the stand-up phase closes on exactly these two, so the nav says so
+ * rather than presenting nine flat, unexplained items. */
+const NAV_GROUPS: { section: string; items: { to: string; label: string; icon: typeof Gauge; end?: boolean }[] }[] = [
+  {
+    section: 'Demo 2 · Security Incident',
+    items: [
+      { to: '/', label: 'Command Centre', icon: Siren, end: true },
+      { to: '/investigation', label: 'Live Investigation', icon: Radar },
+    ],
+  },
+  {
+    section: 'Demo 1 · Model Assurance',
+    items: [
+      { to: '/overview', label: 'Assurance Overview', icon: Gauge },
+      { to: '/registry', label: 'Model Registry', icon: Boxes },
+      { to: '/gates', label: 'Assurance Gates', icon: ShieldCheck },
+      { to: '/authorisation', label: 'Authorisation', icon: KeyRound },
+      { to: '/serving', label: 'Serving', icon: ServerCog },
+    ],
+  },
+  {
+    section: 'Compliance & Sovereignty',
+    items: [
+      { to: '/compliance', label: 'Compliance Evidence', icon: ClipboardCheck },
+      { to: '/ledger', label: 'Evidence Ledger', icon: ScrollText },
+      { to: '/egress', label: 'Sovereignty', icon: Network },
+    ],
+  },
+  {
+    section: '',
+    items: [
+      { to: '/runner', label: 'Guided Walkthrough', icon: PlayCircle },
+      { to: '/disclosure', label: 'Disclosure', icon: FileCheck2 },
+    ],
+  },
 ];
 
 export function AppShell() {
@@ -60,31 +89,45 @@ export function AppShell() {
             <ShieldCheck className="h-5 w-5" />
           </div>
           <div className="leading-tight">
-            <div className="text-sm font-semibold">NSAIC Assurance</div>
+            <div className="text-sm font-semibold">AI Assurance Stack</div>
             <div className="text-[10px] uppercase tracking-wider text-faint">
-              Sovereign AI Cloud
+              National Sovereign AI Cloud
             </div>
           </div>
         </div>
+        <div className="px-4 pb-3">
+          <Mono className="text-[9px] text-faint">MCMC/NSAICO(01)/CLOUD/TC/05/2026</Mono>
+        </div>
 
-        <nav className="flex-1 space-y-0.5 px-2 py-2">
-          {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                cn(
-                  'flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors',
-                  isActive
-                    ? 'bg-primary/12 font-medium text-primary'
-                    : 'text-muted hover:bg-surface-2 hover:text-fg'
-                )
-              }
-            >
-              <item.icon className="h-4 w-4 shrink-0" />
-              {item.label}
-            </NavLink>
+        <nav className="flex-1 space-y-3 overflow-y-auto px-2 py-2">
+          {NAV_GROUPS.map((group, gi) => (
+            <div key={gi}>
+              {group.section && (
+                <div className="px-2.5 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-faint/80">
+                  {group.section}
+                </div>
+              )}
+              <div className="space-y-0.5">
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.end}
+                    className={({ isActive }) =>
+                      cn(
+                        'flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors',
+                        isActive
+                          ? 'bg-primary/12 font-medium text-primary'
+                          : 'text-muted hover:bg-surface-2 hover:text-fg'
+                      )
+                    }
+                  >
+                    <item.icon className="h-4 w-4 shrink-0" />
+                    {item.label}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
 

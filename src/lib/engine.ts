@@ -1,33 +1,32 @@
 import type { AssuranceIndex, Gate, RuntimeEvent } from './types';
 
 /**
- * The Assurance Index is DERIVED, never stored. Every view computes it from the
- * same gate state + runtime events, which is exactly the property claim C6 asks
- * us to prove: the dashboard is a read-out of the machinery, not a separate
- * reporting layer that can drift.
+ * The Sovereign AI Assurance Index (§5.3) is DERIVED, never stored. Every view
+ * computes it from the same gate state + runtime events, which is exactly the
+ * property claim C6 asks us to prove: the dashboard is a read-out of the
+ * machinery, not a separate reporting layer that can drift.
+ *
+ * Each of the eight gates IS a scorecard domain now (§5.3's own table), so
+ * the subscore for a domain is simply that gate's own pass/fail read as a
+ * percentage of its weight — there is no grouping step left to get wrong.
+ * A gate that has not yet run reports 0, not blank: an un-run domain has no
+ * evidence, and "no evidence" and "0%" should look the same, not different.
  */
 export function computeIndex(gates: Gate[], events: RuntimeEvent[]): AssuranceIndex {
+  const totalWeight = gates.reduce((sum, g) => sum + g.weight, 0) || 1;
   const base = gates
     .filter((g) => g.state === 'pass')
     .reduce((sum, g) => sum + g.weight, 0);
   const penalty = events.reduce((sum, e) => sum + e.indexDelta, 0);
-  const score = clamp(base - penalty, 0, 100);
+  // Score is the weighted pass-rate scaled to 0-100 against the FULL scorecard
+  // weight (100 across the eight domains), then reduced by runtime penalties —
+  // matching §5.3's own "0-100 Sovereign AI Assurance Index" framing exactly.
+  const score = clamp(Math.round((base / totalWeight) * 100) - penalty, 0, 100);
 
-  const domains: { label: string; ids: Gate['id'][] }[] = [
-    { label: 'Enforcement', ids: ['metadata', 'provenance'] },
-    { label: 'Safety', ids: ['safety', 'explainability', 'redTeam'] },
-    { label: 'Robustness', ids: ['ragPoisoning', 'fairness'] },
-    { label: 'Sovereignty', ids: ['sovereignty'] },
-  ];
-
-  const subscores = domains.map((d) => {
-    const inDomain = gates.filter((g) => d.ids.includes(g.id));
-    const max = inDomain.reduce((s, g) => s + g.weight, 0) || 1;
-    const got = inDomain
-      .filter((g) => g.state === 'pass')
-      .reduce((s, g) => s + g.weight, 0);
-    return { label: d.label, value: Math.round((got / max) * 100) };
-  });
+  const subscores = gates.map((g) => ({
+    label: g.label,
+    value: g.state === 'pass' ? 100 : 0,
+  }));
 
   return { score, subscores, computedAt: Date.now() };
 }

@@ -27,8 +27,8 @@ export function Dashboard() {
   return (
     <div>
       <PageHeader
-        title="Governance Overview"
-        subtitle="A live read-out of the assurance machinery. Every figure here is derived from the same engine that gates models — no republish step, no separate reporting layer."
+        title="Assurance Overview"
+        subtitle="Demonstration 1 of 2 (§12.1): a candidate model taken end-to-end through onboarding, validation, scoring and authorisation. Every figure here is derived from the same engine that gates models — no republish step, no separate reporting layer."
         claims={['C6']}
         right={<LivePill />}
       />

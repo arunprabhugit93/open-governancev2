@@ -17,6 +17,12 @@ export function GrantStatusBadge({ status }: { status: GrantStatus }) {
           AUTHORISED
         </Badge>
       );
+    case 'CONDITIONAL':
+      return (
+        <Badge tone="warn" icon={<Clock className="h-3 w-3" />}>
+          CONDITIONAL
+        </Badge>
+      );
     case 'REFUSED':
       return (
         <Badge tone="fail" icon={<XCircle className="h-3 w-3" />}>

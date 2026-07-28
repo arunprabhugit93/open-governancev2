@@ -144,6 +144,7 @@ export function Authorisation() {
               <AnimatePresence initial={false}>
                 {grants.map((g) => {
                   const remaining = g.expiresAt - now;
+                  const isLive = g.status === 'AUTHORISED' || g.status === 'CONDITIONAL';
                   return (
                     <motion.div
                       key={g.id}
@@ -162,7 +163,7 @@ export function Authorisation() {
                           {g.reason ? ` · ${g.reason}` : ''}
                         </Mono>
                       </div>
-                      {g.status === 'AUTHORISED' && (
+                      {isLive && (
                         <span className="font-mono text-[11px] text-pass">{formatCountdown(remaining)}</span>
                       )}
                       <GrantStatusBadge status={g.status} />

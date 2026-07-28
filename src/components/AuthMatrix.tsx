@@ -14,6 +14,8 @@ const cellTone = (g: Grant | null) => {
   switch (g.status) {
     case 'AUTHORISED':
       return 'border-pass/40 bg-pass/12 text-pass';
+    case 'CONDITIONAL':
+      return 'border-warn/40 bg-warn/12 text-warn';
     case 'REFUSED':
       return 'border-fail/30 bg-fail/8 text-fail';
     case 'REVOKED':
@@ -52,7 +54,8 @@ export function AuthMatrix({ compact = false }: { compact?: boolean }) {
               </td>
               {CLASSIFICATIONS.map((c) => {
                 const g = latestGrant(grants, t.id, c);
-                const remaining = g && g.status === 'AUTHORISED' ? g.expiresAt - now : 0;
+                const isLive = g?.status === 'AUTHORISED' || g?.status === 'CONDITIONAL';
+                const remaining = g && isLive ? g.expiresAt - now : 0;
                 return (
                   <td key={c} className="p-0">
                     <motion.div
@@ -68,7 +71,7 @@ export function AuthMatrix({ compact = false }: { compact?: boolean }) {
                       ) : (
                         <div className="leading-tight">
                           <div className="text-[10px] font-semibold">{g.status}</div>
-                          {g.status === 'AUTHORISED' && !compact && (
+                          {isLive && !compact && (
                             <div className="mt-0.5 font-mono text-[11px]">
                               {formatCountdown(remaining)}
                             </div>

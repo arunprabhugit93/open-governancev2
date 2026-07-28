@@ -12,6 +12,8 @@ const CLAIMS: { id: string; claim: string; proof: string }[] = [
   { id: 'C6', claim: 'Dashboards are a live read-out — no separate reporting layer.', proof: 'Every dashboard figure is derived from the same engine, updating with no refresh.' },
   { id: 'C7', claim: 'The audit log is tamper-evident.', proof: 'Real SHA-256 chain; tampering any record breaks its verification and all after it.' },
   { id: 'C8', claim: 'Everything stays inside the sovereign boundary.', proof: 'Egress monitor shows all flows internal; external calls refused at the boundary.' },
+  { id: 'C9', claim: 'The SOC investigates every alert to an explainable verdict (§10.2), not a triage queue.', proof: 'Live Investigation walks one alert through all six stages to a threat/suspicious/benign verdict with rationale.' },
+  { id: 'C10', claim: 'Response is governed — low-risk auto, high-impact held for named approval (§10.5).', proof: 'The featured alert requires an approve/deny decision before the SOAR action executes; the decision is ledgered either way.' },
 ];
 
 const SCORING: { criterion: string; weight: string; verified: string }[] = [
