@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------ *
+ * Theme tokens. Modern SaaS governance palette — neutral surfaces,
+ * indigo authority accent, emerald "verified/live". Dark is the
+ * default demo mode (ops-console feel); light proves institutional
+ * credibility. Values are HSL channels consumed by tailwind.config.js.
+ * ------------------------------------------------------------------ */
+:root {
+  --bg: 222 47% 5%;
+  --surface: 222 30% 8%;
+  --surface-2: 222 26% 11%;
+  --elevated: 222 24% 14%;
+  --border: 222 20% 18%;
+  --border-strong: 222 18% 26%;
+  --fg: 210 40% 96%;
+  --muted: 215 18% 62%;
+  --faint: 215 15% 42%;
+  --primary: 243 75% 62%;
+  --primary-fg: 210 40% 98%;
+  --pass: 158 72% 45%;
+  --warn: 38 92% 55%;
+  --fail: 0 78% 62%;
+  --info: 199 89% 55%;
+  --shadow: 222 60% 2%;
+}
+
+html.light {
+  --bg: 210 30% 98%;
+  --surface: 0 0% 100%;
+  --surface-2: 210 30% 97%;
+  --elevated: 0 0% 100%;
+  --border: 214 25% 90%;
+  --border-strong: 214 20% 80%;
+  --fg: 222 40% 12%;
+  --muted: 215 16% 42%;
+  --faint: 215 14% 58%;
+  --primary: 243 72% 56%;
+  --primary-fg: 0 0% 100%;
+  --pass: 158 68% 38%;
+  --warn: 32 90% 44%;
+  --fail: 0 72% 51%;
+  --info: 201 90% 42%;
+  --shadow: 214 40% 55%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: hsl(var(--bg));
+  color: hsl(var(--fg));
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Subtle ambient grid on the app background — instrument-panel texture. */
+.app-grid-bg {
+  background-image:
+    radial-gradient(hsl(var(--border) / 0.55) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: -8px -8px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border-strong));
+  border-radius: 999px;
+  border: 2px solid hsl(var(--bg));
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
